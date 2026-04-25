@@ -2,9 +2,6 @@
 
 Notch Mac es un prototipo personal de una app nativa para macOS inspirada en Alcove. La idea no es copiar la Dynamic Island del iPhone, sino aprovechar la forma real del notch del Mac: una pieza negra pegada al borde superior que se expande hacia abajo cuando hay contenido util.
 
-![Compact Now Playing](screenshots/notch-media-working-crop.png)
-
-![Expanded Now Playing](screenshots/notch-hover-expanded-crop.png)
 
 ## Que hace ahora
 
