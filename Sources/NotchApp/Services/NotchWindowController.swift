@@ -28,6 +28,14 @@ final class NotchWindowController {
             backing: .buffered,
             defer: false
         )
+        panel.firstMouseDownHandler = { [weak appState] in
+            guard let appState, !appState.isPinnedExpanded else {
+                return false
+            }
+
+            appState.togglePinnedExpanded()
+            return true
+        }
         panel.contentViewController = hostingController
         panel.backgroundColor = .clear
         panel.contentView?.wantsLayer = true
@@ -191,8 +199,21 @@ private struct NotchGeometry {
 }
 
 final class NotchPanel: NSPanel {
+    var firstMouseDownHandler: (() -> Bool)?
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown, !isKeyWindow {
+            makeKey()
+            if firstMouseDownHandler?() == true {
+                return
+            }
+        }
+
+        super.sendEvent(event)
+    }
 }
 
 private final class FirstMouseHostingController<Content: View>: NSHostingController<Content> {
