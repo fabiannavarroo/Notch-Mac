@@ -16,7 +16,7 @@ final class NotchWindowController {
         appState.updateNotchSize(initialGeometry.notchSize)
 
         let contentView = NotchIslandView(appState: appState)
-        let hostingController = NSHostingController(rootView: contentView)
+        let hostingController = FirstMouseHostingController(rootView: contentView)
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
         hostingController.view.canDrawSubviewsIntoLayer = true
@@ -193,4 +193,16 @@ private struct NotchGeometry {
 final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+}
+
+private final class FirstMouseHostingController<Content: View>: NSHostingController<Content> {
+    override func loadView() {
+        view = FirstMouseHostingView(rootView: rootView)
+    }
+}
+
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
 }
