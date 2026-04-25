@@ -26,7 +26,8 @@ struct NotchIslandView: View {
             appState.togglePinnedExpanded()
         }
         .onDrop(of: [.fileURL], delegate: StashDropDelegate(appState: appState))
-        .animation(.easeInOut(duration: 0.22), value: appState.currentMedia.id)
+        .animation(.spring(response: 0.34, dampingFraction: 0.88), value: appState.presentation)
+        .animation(.easeInOut(duration: 0.2), value: appState.currentMedia.id)
     }
 
     @ViewBuilder
@@ -34,13 +35,20 @@ struct NotchIslandView: View {
         if isExpanded {
             ExpandedIslandView(appState: appState)
                 .padding(.top, appState.notchSize.height + 2)
-                .transition(.opacity.animation(.easeInOut(duration: 0.18)))
+                .transition(softContentTransition)
         } else if appState.presentation == .media || appState.presentation == .trackPreview {
             MediaIslandView(item: appState.currentMedia, notchWidth: appState.notchSize.width)
-                .transition(.opacity.animation(.easeInOut(duration: 0.18)))
+                .transition(softContentTransition)
         } else {
             Color.clear
         }
+    }
+
+    private var softContentTransition: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.combined(with: .scale(scale: 0.97, anchor: .top)),
+            removal: .opacity.combined(with: .scale(scale: 0.99, anchor: .top))
+        )
     }
 }
 
