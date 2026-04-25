@@ -130,31 +130,45 @@ final class MediaRemoteNowPlayingProvider {
     }
 
     private func enrichWithAppleScript(_ item: NowPlayingItem) -> NowPlayingItem {
-        guard item.baseElapsed < 0.5 || item.duration < 0.5 else { return item }
-
-        let candidates = ["Music", "Spotify"]
-        for app in candidates {
-            guard let snapshot = appleScriptSnapshot(app: app) else { continue }
-            let nextElapsed = snapshot.elapsed > 0 ? snapshot.elapsed : item.baseElapsed
-            let nextDuration = snapshot.duration > 0 ? snapshot.duration : item.duration
-            return NowPlayingItem(
-                id: item.id,
-                title: item.title,
-                artist: item.artist,
-                album: item.album,
-                duration: nextDuration,
-                baseElapsed: nextElapsed,
-                baseDate: Date(),
-                isPlaying: snapshot.isPlaying,
-                artwork: item.artwork,
-                accentColor: item.accentColor,
-                sourceName: item.sourceName
-            )
+        let snapshots = ["Spotify", "Music"].compactMap { appleScriptSnapshot(app: $0) }
+        guard let snapshot = snapshots.first(where: \.isPlaying) ?? snapshots.first else {
+            return item
         }
-        return item
+
+        let snapshotID = NowPlayingItem.stableID(
+            title: snapshot.title,
+            artist: snapshot.artist,
+            contentItemID: nil
+        )
+        let itemID = NowPlayingItem.stableID(
+            title: item.title,
+            artist: item.artist,
+            contentItemID: nil
+        )
+        let shouldPreferSnapshot = snapshot.isPlaying || item.baseElapsed < 0.5 || item.duration < 0.5
+        guard shouldPreferSnapshot else { return item }
+
+        let keepsSameTrack = snapshotID == itemID
+        return NowPlayingItem(
+            id: snapshotID,
+            title: snapshot.title.isEmpty ? item.title : snapshot.title,
+            artist: snapshot.artist.isEmpty ? item.artist : snapshot.artist,
+            album: snapshot.album.isEmpty ? item.album : snapshot.album,
+            duration: snapshot.duration > 0 ? snapshot.duration : item.duration,
+            baseElapsed: snapshot.elapsed > 0 ? snapshot.elapsed : item.baseElapsed,
+            baseDate: Date(),
+            isPlaying: snapshot.isPlaying,
+            artwork: keepsSameTrack ? item.artwork : nil,
+            accentColor: keepsSameTrack ? item.accentColor : nil,
+            sourceName: snapshot.sourceName
+        )
     }
 
     private struct PlayerSnapshot {
+        let sourceName: String
+        let title: String
+        let artist: String
+        let album: String
         let elapsed: Double
         let duration: Double
         let isPlaying: Bool
@@ -165,13 +179,16 @@ final class MediaRemoteNowPlayingProvider {
         if application "\(app)" is running then
             tell application "\(app)"
                 try
+                    set trackName to name of current track
+                    set trackArtist to artist of current track
+                    set trackAlbum to album of current track
                     set ps to player state as text
                     set pp to player position
                     set dur to 0
                     try
                         set dur to duration of current track
                     end try
-                    return (pp as text) & "|" & (dur as text) & "|" & ps
+                    return trackName & "|" & trackArtist & "|" & trackAlbum & "|" & (pp as text) & "|" & (dur as text) & "|" & ps
                 on error
                     return ""
                 end try
@@ -190,16 +207,28 @@ final class MediaRemoteNowPlayingProvider {
         }
 
         let parts = stringValue.components(separatedBy: "|")
-        guard parts.count >= 3 else { return nil }
+        guard parts.count >= 6 else { return nil }
 
-        let elapsed = Double(parts[0].replacingOccurrences(of: ",", with: ".")) ?? 0
-        let duration = Double(parts[1].replacingOccurrences(of: ",", with: ".")) ?? 0
-        let stateText = parts[2].lowercased()
+        let title = parts[0]
+        let artist = parts[1]
+        let album = parts[2]
+        let elapsed = Double(parts[3].replacingOccurrences(of: ",", with: ".")) ?? 0
+        let rawDuration = Double(parts[4].replacingOccurrences(of: ",", with: ".")) ?? 0
+        let duration = app == "Spotify" ? rawDuration / 1000 : rawDuration
+        let stateText = parts[5].lowercased()
         let isPlaying = stateText.contains("playing")
 
         guard elapsed > 0 || duration > 0 else { return nil }
 
-        return PlayerSnapshot(elapsed: elapsed, duration: duration, isPlaying: isPlaying)
+        return PlayerSnapshot(
+            sourceName: app,
+            title: title,
+            artist: artist,
+            album: album,
+            elapsed: elapsed,
+            duration: duration,
+            isPlaying: isPlaying
+        )
     }
 
     private func send(_ command: MediaCommand) {

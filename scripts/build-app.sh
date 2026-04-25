@@ -44,6 +44,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>NotchApp necesita leer Spotify y Music para mostrar la cancion actual en el notch.</string>
 </dict>
 </plist>
 PLIST
