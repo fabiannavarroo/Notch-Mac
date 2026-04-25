@@ -138,8 +138,8 @@ final class NotchWindowController {
 
         if animated {
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.24
-                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.9, 0.2, 1)
+                ctx.duration = 0.17
+                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.32, 0.72, 0, 1)
                 ctx.allowsImplicitAnimation = true
                 panel.animator().setFrame(frame, display: true)
             }
