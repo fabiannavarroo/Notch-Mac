@@ -35,16 +35,19 @@ struct NotchIslandView: View {
         if isExpanded {
             ExpandedIslandView(appState: appState)
                 .padding(.top, appState.notchSize.height + 2)
-                .transition(softContentTransition)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
+                .transition(.identity)
         } else if appState.presentation == .media || appState.presentation == .trackPreview {
             MediaIslandView(item: appState.currentMedia, notchWidth: appState.notchSize.width)
-                .transition(softContentTransition)
+                .transition(mediaContentTransition)
         } else {
             Color.clear
         }
     }
 
-    private var softContentTransition: AnyTransition {
+    private var mediaContentTransition: AnyTransition {
         .asymmetric(
             insertion: .opacity.combined(with: .scale(scale: 0.97, anchor: .top)),
             removal: .opacity.combined(with: .scale(scale: 0.99, anchor: .top))
