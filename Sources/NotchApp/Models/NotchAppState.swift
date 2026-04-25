@@ -22,7 +22,7 @@ final class NotchAppState: ObservableObject {
     @Published var nowPlaying: NowPlayingItem?
     @Published var latestEvent: NotchEvent?
     @Published var verticalOffset: CGFloat
-    @Published var notchSize: CGSize = CGSize(width: 200, height: 30)
+    @Published var notchSize: CGSize = CGSize(width: 200, height: 32)
     @Published var stashedFiles: [StashedFile] = []
     @Published var isDropTargeted: Bool = false
 
@@ -67,9 +67,9 @@ final class NotchAppState: ObservableObject {
             return CGSize(width: notchSize.width + 2, height: notchSize.height + 0)
         case .media:
             if peeking {
-                return CGSize(width: notchSize.width + 120, height: notchSize.height + 10)
+                return CGSize(width: notchSize.width + 10, height: notchSize.height + 8)
             }
-            return CGSize(width: notchSize.width + 110, height: notchSize.height + 6)
+            return CGSize(width: notchSize.width + 2, height: notchSize.height + 0)
         case .expanded:
             return CGSize(
                 width: max(notchSize.width + 200, 380),
