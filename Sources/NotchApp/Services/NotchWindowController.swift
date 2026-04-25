@@ -61,8 +61,8 @@ final class NotchWindowController {
         let mouse = NSEvent.mouseLocation
 
         let target = appState.targetSize
-        let zoneWidth = max(target.width + 60, geometry.notchSize.width + 1)
-        let zoneHeight = max(target.height + 30, geometry.notchSize.height + 1)
+        let zoneWidth = max(target.width + 6, geometry.notchSize.width + 1)
+        let zoneHeight = max(target.height + 6, geometry.notchSize.height + 1)
         let zone = NSRect(
             x: geometry.centerX - zoneWidth / 2,
             y: geometry.topY - zoneHeight,
@@ -130,7 +130,7 @@ final class NotchWindowController {
 
         if animated {
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.28
+                ctx.duration = 0.17
                 ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.32, 0.72, 0, 1)
                 ctx.allowsImplicitAnimation = true
                 panel.animator().setFrame(frame, display: true)

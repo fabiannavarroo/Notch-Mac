@@ -35,7 +35,7 @@ struct NotchIslandView: View {
             ExpandedIslandView(appState: appState)
                 .padding(.top, appState.notchSize.height + 2)
                 .transition(.opacity.animation(.easeInOut(duration: 0.18)))
-        } else if appState.presentation == .media {
+        } else if appState.presentation == .media || appState.presentation == .trackPreview {
             MediaIslandView(item: appState.currentMedia, notchWidth: appState.notchSize.width)
                 .transition(.opacity.animation(.easeInOut(duration: 0.18)))
         } else {

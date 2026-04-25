@@ -11,6 +11,7 @@ final class NotchAppState: ObservableObject {
     enum Presentation: Equatable {
         case idle
         case media
+        case trackPreview
         case expanded
     }
 
@@ -30,7 +31,6 @@ final class NotchAppState: ObservableObject {
     var ingestURLsHandler: (([URL]) -> Void)?
     var removeStashHandler: ((StashedFile) -> Void)?
     private var hoverTask: Task<Void, Never>?
-
     init() {
         if UserDefaults.standard.object(forKey: DefaultsKey.verticalOffset) != nil {
             verticalOffset = CGFloat(UserDefaults.standard.double(forKey: DefaultsKey.verticalOffset))
@@ -62,14 +62,16 @@ final class NotchAppState: ObservableObject {
         switch presentation {
         case .idle:
             if peeking {
-                return CGSize(width: notchSize.width + 10, height: notchSize.height + 8)
+                return CGSize(width: notchSize.width + 100, height: notchSize.height + 8)
             }
-            return CGSize(width: notchSize.width + 2, height: notchSize.height + 0)
+            return CGSize(width: notchSize.width + 90, height: notchSize.height + 0)
         case .media:
             if peeking {
-                return CGSize(width: notchSize.width + 10, height: notchSize.height + 8)
+                return CGSize(width: notchSize.width + 100, height: notchSize.height + 8)
             }
-            return CGSize(width: notchSize.width + 2, height: notchSize.height + 0)
+            return CGSize(width: notchSize.width + 90, height: notchSize.height + 0)
+        case .trackPreview:
+            return CGSize(width: notchSize.width + 150, height: notchSize.height + 34)
         case .expanded:
             return CGSize(
                 width: max(notchSize.width + 200, 380),
