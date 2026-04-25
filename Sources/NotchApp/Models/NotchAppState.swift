@@ -162,17 +162,21 @@ final class NotchAppState: ObservableObject {
         let incomingElapsedNow = incoming.elapsed
         let drift = abs(localElapsedNow - incomingElapsedNow)
         let isStateChange = current.isPlaying != incoming.isPlaying
-        let isLargeSeek = drift > 4
-
+        let incomingHasReliableElapsed = incoming.baseElapsed > 0.5 || incomingElapsedNow > 0.5
+        let isLargeSeek = incomingHasReliableElapsed && drift > 4
 
         let nextBaseElapsed: TimeInterval
         let nextBaseDate: Date
         let nextIsPlaying: Bool
 
-        if isStateChange || isLargeSeek {
+        if isStateChange {
+            nextBaseElapsed = incomingHasReliableElapsed ? incoming.baseElapsed : localElapsedNow
+            nextBaseDate = Date()
+            nextIsPlaying = incoming.isPlaying
+        } else if isLargeSeek {
             nextBaseElapsed = incoming.baseElapsed
             nextBaseDate = incoming.baseDate
-            nextIsPlaying = incoming.isPlaying
+            nextIsPlaying = current.isPlaying
         } else {
             nextBaseElapsed = current.baseElapsed
             nextBaseDate = current.baseDate
