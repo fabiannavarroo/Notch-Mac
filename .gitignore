@@ -1,0 +1,14 @@
+.DS_Store
+.build/
+DerivedData/
+*.xcuserdata/
+*.xcuserstate
+
+# Keep only the curated README screenshots.
+screenshots/*
+!screenshots/notch-media-working-crop.png
+!screenshots/notch-hover-expanded-crop.png
+
+# Local logs and generated artwork.
+*.log
+/tmp/
