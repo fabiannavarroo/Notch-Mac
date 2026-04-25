@@ -234,7 +234,28 @@ final class NotchAppState: ObservableObject {
     }
 
     func send(_ command: MediaCommand) {
+        applyLocalMediaCommand(command)
         mediaCommandHandler?(command)
+    }
+
+    private func applyLocalMediaCommand(_ command: MediaCommand) {
+        guard command == .previousTrack, let current = nowPlaying else {
+            return
+        }
+
+        nowPlaying = NowPlayingItem(
+            id: current.id,
+            title: current.title,
+            artist: current.artist,
+            album: current.album,
+            duration: current.duration,
+            baseElapsed: 0,
+            baseDate: Date(),
+            isPlaying: current.isPlaying,
+            artwork: current.artwork,
+            accentColor: current.accentColor,
+            sourceName: current.sourceName
+        )
     }
 
 }
