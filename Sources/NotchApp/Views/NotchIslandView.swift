@@ -6,8 +6,9 @@ struct NotchIslandView: View {
 
     var body: some View {
         let isExpanded = appState.presentation == .expanded
+        let isFileTray = appState.presentation == .fileTray
         let isPreview = appState.presentation == .trackPreview
-        let bottomRadius: CGFloat = isExpanded ? 20 : (isPreview ? 16 : 12)
+        let bottomRadius: CGFloat = isExpanded || isFileTray ? 20 : (isPreview ? 16 : 12)
         let target = appState.targetSize
 
         ZStack(alignment: .top) {
@@ -25,7 +26,7 @@ struct NotchIslandView: View {
             }
             .frame(width: target.width, height: target.height)
             .clipShape(NotchChromeShape(bottomCornerRadius: bottomRadius))
-            .shadow(color: .black.opacity(isExpanded || isPreview ? 0.4 : 0), radius: isExpanded || isPreview ? 18 : 0, x: 0, y: 10)
+            .shadow(color: .black.opacity(isExpanded || isPreview || isFileTray ? 0.4 : 0), radius: isExpanded || isPreview || isFileTray ? 18 : 0, x: 0, y: 10)
             .contentShape(NotchChromeShape(bottomCornerRadius: bottomRadius))
             .onTapGesture {
                 appState.togglePinnedExpanded()
@@ -33,7 +34,6 @@ struct NotchIslandView: View {
             .onDrop(of: [.fileURL], delegate: StashDropDelegate(appState: appState))
             .animation(.spring(response: 0.3, dampingFraction: 0.86), value: target)
             .animation(.spring(response: 0.3, dampingFraction: 0.86), value: appState.presentation)
-            .animation(.easeInOut(duration: 0.22), value: appState.currentMedia.id)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -44,9 +44,19 @@ struct NotchIslandView: View {
             ExpandedIslandView(appState: appState)
                 .padding(.top, appState.notchSize.height + 2)
                 .transition(.opacity)
+        } else if appState.presentation == .fileTray {
+            if appState.fileTrayExpanded {
+                FileTrayView(appState: appState)
+                    .padding(.top, appState.notchSize.height + 2)
+                    .transition(.opacity)
+            } else {
+                FileTrayCompactView(appState: appState)
+                    .transition(.opacity)
+            }
         } else if appState.presentation == .trackPreview {
             TrackPreviewBar(
                 item: appState.currentMedia,
+                previousItem: appState.previousTrack,
                 notchSize: appState.notchSize
             )
             .transition(.opacity)
@@ -170,17 +180,86 @@ private struct ExpandedIslandView: View {
             }
             .padding(.horizontal, 4)
             .frame(height: 28)
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
+    }
+}
 
-            if !appState.stashedFiles.isEmpty {
+private struct FileTrayCompactView: View {
+    @ObservedObject var appState: NotchAppState
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Image(systemName: "tray.full.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+                .padding(.leading, 12)
+
+            Spacer(minLength: appState.notchSize.width)
+
+            Text("\(appState.stashedFiles.count)")
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .monospacedDigit()
+                .padding(.trailing, 14)
+        }
+        .frame(maxHeight: .infinity)
+    }
+}
+
+private struct FileTrayView: View {
+    @ObservedObject var appState: NotchAppState
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "tray.full.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                Text(appState.stashedFiles.isEmpty ? "Suelta archivos" : "\(appState.stashedFiles.count) archivo\(appState.stashedFiles.count == 1 ? "" : "s")")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                Spacer()
+                if !appState.stashedFiles.isEmpty {
+                    Button {
+                        for file in appState.stashedFiles {
+                            appState.removeStashed(file)
+                        }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+
+            if appState.stashedFiles.isEmpty {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.white.opacity(appState.isDropTargeted ? 0.4 : 0.15), style: StrokeStyle(lineWidth: 1.4, dash: [5, 4]))
+                    VStack(spacing: 4) {
+                        Image(systemName: "arrow.down.doc")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.55))
+                        Text("Arrastra aquí")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            } else {
                 StashTrayView(
                     files: appState.stashedFiles,
                     onRemove: { appState.removeStashed($0) }
                 )
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .padding(.bottom, 4)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 6)
     }
 }
 
@@ -263,7 +342,20 @@ private struct StashThumbnail: View {
         }
         .help(file.name)
         .onDrag {
-            NSItemProvider(object: file.url as NSURL)
+            let provider = NSItemProvider()
+            provider.suggestedName = file.name
+            provider.registerFileRepresentation(
+                forTypeIdentifier: UTType.fileURL.identifier,
+                fileOptions: [],
+                visibility: .all
+            ) { completion in
+                completion(file.url, false, nil)
+                Task { @MainActor in
+                    onRemove(file)
+                }
+                return nil
+            }
+            return provider
         }
     }
 }
@@ -442,6 +534,30 @@ private struct ArtworkView: View {
     }
 }
 
+private struct FlipArtworkView: View {
+    let frontItem: NowPlayingItem
+    let backItem: NowPlayingItem
+    let size: CGFloat
+
+    @State private var flipAngle: Double = 0
+
+    var body: some View {
+        ZStack {
+            ArtworkView(item: frontItem, size: size)
+                .opacity(flipAngle < 90 ? 1 : 0)
+            ArtworkView(item: backItem, size: size)
+                .rotation3DEffect(.degrees(180), axis: (0, 1, 0))
+                .opacity(flipAngle >= 90 ? 1 : 0)
+        }
+        .rotation3DEffect(.degrees(flipAngle), axis: (0, 1, 0), anchor: .center, perspective: 0.6)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.6).delay(0.25)) {
+                flipAngle = 180
+            }
+        }
+    }
+}
+
 private struct MediaButton: View {
     enum Tone {
         case primary
@@ -580,13 +696,20 @@ private struct EqualizerGlyph: View {
 
 private struct TrackPreviewBar: View {
     let item: NowPlayingItem
+    let previousItem: NowPlayingItem?
     let notchSize: CGSize
 
     var body: some View {
         ZStack(alignment: .top) {
             HStack(spacing: 0) {
-                ArtworkView(item: item, size: 32)
-                    .padding(.leading, 8)
+                Group {
+                    if let previousItem {
+                        FlipArtworkView(frontItem: previousItem, backItem: item, size: 32)
+                    } else {
+                        ArtworkView(item: item, size: 32)
+                    }
+                }
+                .padding(.leading, 8)
 
                 Spacer(minLength: notchSize.width - 16)
 

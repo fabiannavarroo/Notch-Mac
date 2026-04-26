@@ -13,6 +13,7 @@ final class NotchAppState: ObservableObject {
         case idle
         case media
         case trackPreview
+        case fileTray
         case expanded
     }
 
@@ -29,6 +30,7 @@ final class NotchAppState: ObservableObject {
     @Published var isDropTargeted: Bool = false
 
     @Published var isTrackPreviewActive: Bool = false
+    @Published var previousTrack: NowPlayingItem?
 
     @Published var launchAtLogin: Bool = LoginItemService.isEnabled {
         didSet {
@@ -67,7 +69,17 @@ final class NotchAppState: ObservableObject {
     }
 
     var presentation: Presentation {
-        if isPinnedExpanded || isHoverExpanded || latestEvent != nil || isDropTargeted {
+        if isDropTargeted {
+            return .fileTray
+        }
+
+        if !stashedFiles.isEmpty {
+            return .fileTray
+        }
+
+        let userExpanding = isPinnedExpanded || isHoverExpanded
+
+        if userExpanding || latestEvent != nil {
             return .expanded
         }
 
@@ -82,12 +94,15 @@ final class NotchAppState: ObservableObject {
         return .idle
     }
 
+    var fileTrayExpanded: Bool {
+        isDropTargeted || isPinnedExpanded || isHoverExpanded
+    }
+
     var currentMedia: NowPlayingItem {
         nowPlaying ?? .placeholder()
     }
 
     var targetSize: CGSize {
-        let stashHeight: CGFloat = stashedFiles.isEmpty ? 0 : 56
         let peeking = isPeeking && !isPinnedExpanded && !isHoverExpanded && latestEvent == nil
 
         switch presentation {
@@ -106,10 +121,18 @@ final class NotchAppState: ObservableObject {
                 width: max(notchSize.width + 120, 380),
                 height: notchSize.height + 40
             )
+        case .fileTray:
+            if fileTrayExpanded {
+                return CGSize(
+                    width: max(notchSize.width + 220, 420),
+                    height: notchSize.height + 90
+                )
+            }
+            return CGSize(width: notchSize.width + 90, height: notchSize.height + 0)
         case .expanded:
             return CGSize(
                 width: max(notchSize.width + 200, 380),
-                height: notchSize.height + 80 + stashHeight
+                height: notchSize.height + 80
             )
         }
     }
@@ -188,6 +211,7 @@ final class NotchAppState: ObservableObject {
         }
 
         guard let current = nowPlaying, current.id == incoming.id else {
+            previousTrack = nowPlaying
             nowPlaying = incoming
             if incoming.isPlaying {
                 triggerTrackPreview()
@@ -296,6 +320,7 @@ final class NotchAppState: ObservableObject {
             try? await Task.sleep(for: .milliseconds(2500))
             guard !Task.isCancelled else { return }
             self?.isTrackPreviewActive = false
+            self?.previousTrack = nil
         }
     }
 
