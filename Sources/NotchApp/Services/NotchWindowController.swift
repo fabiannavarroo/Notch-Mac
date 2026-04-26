@@ -12,7 +12,7 @@ final class NotchWindowController {
     init(appState: NotchAppState) {
         self.appState = appState
 
-        let initialGeometry = NotchGeometry(screen: Self.targetScreen() ?? NSScreen.main ?? NSScreen.screens.first!)
+        let initialGeometry = NotchGeometry(screen: Self.targetScreen(preferredID: appState.preferredScreenID) ?? NSScreen.main ?? NSScreen.screens.first!)
         appState.updateNotchSize(initialGeometry.notchSize)
 
         let contentView = NotchIslandView(appState: appState)
@@ -66,7 +66,7 @@ final class NotchWindowController {
     }
 
     private func evaluateHover() {
-        guard let screen = Self.targetScreen() else { return }
+        guard let screen = Self.targetScreen(preferredID: appState.preferredScreenID) else { return }
         let geometry = NotchGeometry(screen: screen)
         let mouse = NSEvent.mouseLocation
 
@@ -119,6 +119,13 @@ final class NotchWindowController {
             }
             .store(in: &cancellables)
 
+        appState.$preferredScreenID
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.reposition(animated: false)
+            }
+            .store(in: &cancellables)
+
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -128,7 +135,7 @@ final class NotchWindowController {
     }
 
     private func reposition(animated: Bool) {
-        guard let screen = Self.targetScreen() else {
+        guard let screen = Self.targetScreen(preferredID: appState.preferredScreenID) else {
             return
         }
 
@@ -147,14 +154,22 @@ final class NotchWindowController {
         panel.setFrame(frame, display: true)
     }
 
-    private static func targetScreen() -> NSScreen? {
-        NSScreen.screens.first { NotchGeometry(screen: $0).hasNotch }
+    static func targetScreen(preferredID: UInt32?) -> NSScreen? {
+        if let preferredID,
+           let preferred = NSScreen.screens.first(where: { NotchGeometry.displayID(for: $0) == preferredID }) {
+            return preferred
+        }
+        return NSScreen.screens.first { NotchGeometry(screen: $0).hasNotch }
             ?? NSScreen.main
             ?? NSScreen.screens.first
     }
 }
 
-private struct NotchGeometry {
+struct NotchGeometry {
+    static func displayID(for screen: NSScreen) -> UInt32? {
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+    }
+
     let screen: NSScreen
     let notchRect: NSRect?
 

@@ -6,6 +6,7 @@ import Foundation
 final class NotchAppState: ObservableObject {
     private enum DefaultsKey {
         static let verticalOffset = "notch.verticalOffset"
+        static let preferredScreenID = "notch.preferredScreenID"
     }
 
     enum Presentation: Equatable {
@@ -29,6 +30,24 @@ final class NotchAppState: ObservableObject {
 
     @Published var isTrackPreviewActive: Bool = false
 
+    @Published var launchAtLogin: Bool = LoginItemService.isEnabled {
+        didSet {
+            guard launchAtLogin != oldValue else { return }
+            LoginItemService.setEnabled(launchAtLogin)
+        }
+    }
+
+    @Published var preferredScreenID: UInt32? {
+        didSet {
+            guard preferredScreenID != oldValue else { return }
+            if let id = preferredScreenID {
+                UserDefaults.standard.set(Int(id), forKey: DefaultsKey.preferredScreenID)
+            } else {
+                UserDefaults.standard.removeObject(forKey: DefaultsKey.preferredScreenID)
+            }
+        }
+    }
+
     var mediaCommandHandler: ((MediaCommand) -> Void)?
     var ingestURLsHandler: (([URL]) -> Void)?
     var removeStashHandler: ((StashedFile) -> Void)?
@@ -40,6 +59,10 @@ final class NotchAppState: ObservableObject {
             verticalOffset = CGFloat(UserDefaults.standard.double(forKey: DefaultsKey.verticalOffset))
         } else {
             verticalOffset = 0
+        }
+
+        if let stored = UserDefaults.standard.object(forKey: DefaultsKey.preferredScreenID) as? Int {
+            preferredScreenID = UInt32(stored)
         }
     }
 
@@ -165,9 +188,8 @@ final class NotchAppState: ObservableObject {
         }
 
         guard let current = nowPlaying, current.id == incoming.id else {
-            let hadPrevious = nowPlaying != nil
             nowPlaying = incoming
-            if hadPrevious {
+            if incoming.isPlaying {
                 triggerTrackPreview()
             }
             scheduleIdleHide(isPlaying: incoming.isPlaying)
@@ -283,23 +305,32 @@ final class NotchAppState: ObservableObject {
     }
 
     private func applyLocalMediaCommand(_ command: MediaCommand) {
-        guard command == .previousTrack, let current = nowPlaying else {
+        guard let current = nowPlaying else { return }
+
+        switch command {
+        case .previousTrack:
+            nowPlaying = withElapsed(0, on: current)
+        case .seek(let target):
+            nowPlaying = withElapsed(max(0, target), on: current)
+        case .togglePlayPause, .nextTrack:
             return
         }
+    }
 
-        nowPlaying = NowPlayingItem(
-            id: current.id,
-            title: current.title,
-            artist: current.artist,
-            album: current.album,
-            duration: current.duration,
-            baseElapsed: 0,
+    private func withElapsed(_ elapsed: TimeInterval, on item: NowPlayingItem) -> NowPlayingItem {
+        NowPlayingItem(
+            id: item.id,
+            title: item.title,
+            artist: item.artist,
+            album: item.album,
+            duration: item.duration,
+            baseElapsed: elapsed,
             baseDate: Date(),
-            isPlaying: current.isPlaying,
-            artwork: current.artwork,
-            accentColor: current.accentColor,
-            palette: current.palette,
-            sourceName: current.sourceName
+            isPlaying: item.isPlaying,
+            artwork: item.artwork,
+            accentColor: item.accentColor,
+            palette: item.palette,
+            sourceName: item.sourceName
         )
     }
 

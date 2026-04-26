@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MenuBarView: View {
@@ -5,12 +6,32 @@ struct MenuBarView: View {
 
     var body: some View {
         Toggle("Mostrar isla", isOn: $appState.isIslandEnabled)
+        Toggle("Iniciar al arrancar Mac", isOn: $appState.launchAtLogin)
 
         Button(appState.isPinnedExpanded ? "Contraer" : "Expandir") {
             appState.togglePinnedExpanded()
         }
 
         Divider()
+
+        Menu("Pantalla") {
+            Button {
+                appState.preferredScreenID = nil
+            } label: {
+                Label("Automática (notch)", systemImage: appState.preferredScreenID == nil ? "checkmark" : "")
+            }
+
+            Divider()
+
+            ForEach(NSScreen.screens, id: \.self) { screen in
+                let id = NotchGeometry.displayID(for: screen)
+                Button {
+                    appState.preferredScreenID = id
+                } label: {
+                    Label(screen.localizedName, systemImage: appState.preferredScreenID == id ? "checkmark" : "")
+                }
+            }
+        }
 
         Button("Subir isla") {
             appState.adjustVerticalOffset(by: 2)

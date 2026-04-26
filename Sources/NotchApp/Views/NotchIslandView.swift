@@ -139,8 +139,10 @@ private struct ExpandedIslandView: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
 
-                    PlaybackProgress(item: item, accent: accent)
-                        .padding(.top, 2)
+                    PlaybackProgress(item: item, accent: accent) { target in
+                        appState.send(.seek(to: target))
+                    }
+                    .padding(.top, 2)
                 }
 
                 Spacer(minLength: 0)
@@ -332,15 +334,18 @@ private final class URLCollector: @unchecked Sendable {
 private struct PlaybackProgress: View {
     let item: NowPlayingItem
     let accent: SwiftUI.Color
+    let onScrub: (TimeInterval) -> Void
+
+    @State private var scrubProgress: Double?
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-            let elapsed = item.elapsed
-            let remaining = max(item.duration - elapsed, 0)
-            let progress = item.progress
+            let progress = scrubProgress ?? item.progress
+            let liveElapsed = item.duration > 0 ? progress * item.duration : item.elapsed
+            let remaining = max(item.duration - liveElapsed, 0)
 
             HStack(spacing: 8) {
-                Text(timeString(elapsed))
+                Text(timeString(liveElapsed))
                     .font(.system(size: 9, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.55))
                     .monospacedDigit()
@@ -354,6 +359,20 @@ private struct PlaybackProgress: View {
                             .fill(accent)
                             .frame(width: max(3, proxy.size.width * progress))
                     }
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let raw = value.location.x / proxy.size.width
+                                scrubProgress = min(max(raw, 0), 1)
+                            }
+                            .onEnded { _ in
+                                if let p = scrubProgress, item.duration > 0 {
+                                    onScrub(p * item.duration)
+                                }
+                                scrubProgress = nil
+                            }
+                    )
                 }
                 .frame(height: 3)
 

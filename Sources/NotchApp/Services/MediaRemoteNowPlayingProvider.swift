@@ -21,11 +21,13 @@ final class MediaRemoteNowPlayingProvider {
 
     private typealias SendCommandFunction = @convention(c) (Int32, CFDictionary?) -> Void
     private typealias RegisterNotificationsFunction = @convention(c) (DispatchQueue) -> Void
+    private typealias SetElapsedTimeFunction = @convention(c) (Double) -> Void
 
     private let appState: NotchAppState
     private var mediaRemoteHandle: UnsafeMutableRawPointer?
     private var getNowPlayingInfo: GetNowPlayingInfoFunction?
     private var sendCommand: SendCommandFunction?
+    private var setElapsedTime: SetElapsedTimeFunction?
     private var timer: Timer?
     private var observers: [NSObjectProtocol] = []
 
@@ -71,6 +73,10 @@ final class MediaRemoteNowPlayingProvider {
 
         if let commandSymbol = dlsym(handle, "MRMediaRemoteSendCommand") {
             sendCommand = unsafeBitCast(commandSymbol, to: SendCommandFunction.self)
+        }
+
+        if let seekSymbol = dlsym(handle, "MRMediaRemoteSetElapsedTime") {
+            setElapsedTime = unsafeBitCast(seekSymbol, to: SetElapsedTimeFunction.self)
         }
     }
 
@@ -233,9 +239,12 @@ final class MediaRemoteNowPlayingProvider {
     }
 
     private func send(_ command: MediaCommand) {
-        guard let sendCommand else {
+        if case let .seek(target) = command {
+            seek(to: target)
             return
         }
+
+        guard let sendCommand else { return }
 
         let mediaRemoteCommand: Int32
         switch command {
@@ -245,6 +254,8 @@ final class MediaRemoteNowPlayingProvider {
             mediaRemoteCommand = 2
         case .nextTrack:
             mediaRemoteCommand = 4
+        case .seek:
+            return
         }
 
         sendCommand(mediaRemoteCommand, nil)
@@ -252,6 +263,43 @@ final class MediaRemoteNowPlayingProvider {
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
             self?.poll()
+        }
+    }
+
+    private func seek(to seconds: TimeInterval) {
+        if let setElapsedTime {
+            setElapsedTime(seconds)
+        } else {
+            seekViaAppleScript(seconds: seconds)
+        }
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            self?.poll()
+        }
+    }
+
+    private func seekViaAppleScript(seconds: TimeInterval) {
+        let candidates = ["Music", "Spotify"]
+        for app in candidates {
+            let source = """
+            if application "\(app)" is running then
+                tell application "\(app)"
+                    try
+                        set player position to \(seconds)
+                        return "ok"
+                    on error
+                        return ""
+                    end try
+                end tell
+            else
+                return ""
+            end if
+            """
+            var error: NSDictionary?
+            let script = NSAppleScript(source: source)
+            let result = script?.executeAndReturnError(&error)
+            if result?.stringValue == "ok" { return }
         }
     }
 
