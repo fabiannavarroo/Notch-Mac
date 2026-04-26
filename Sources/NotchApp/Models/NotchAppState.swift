@@ -27,10 +27,14 @@ final class NotchAppState: ObservableObject {
     @Published var stashedFiles: [StashedFile] = []
     @Published var isDropTargeted: Bool = false
 
+    @Published var isTrackPreviewActive: Bool = false
+
     var mediaCommandHandler: ((MediaCommand) -> Void)?
     var ingestURLsHandler: (([URL]) -> Void)?
     var removeStashHandler: ((StashedFile) -> Void)?
     private var hoverTask: Task<Void, Never>?
+    private var trackPreviewTask: Task<Void, Never>?
+    private var idleHideTask: Task<Void, Never>?
     init() {
         if UserDefaults.standard.object(forKey: DefaultsKey.verticalOffset) != nil {
             verticalOffset = CGFloat(UserDefaults.standard.double(forKey: DefaultsKey.verticalOffset))
@@ -42,6 +46,10 @@ final class NotchAppState: ObservableObject {
     var presentation: Presentation {
         if isPinnedExpanded || isHoverExpanded || latestEvent != nil || isDropTargeted {
             return .expanded
+        }
+
+        if isTrackPreviewActive, nowPlaying != nil {
+            return .trackPreview
         }
 
         if nowPlaying != nil {
@@ -71,7 +79,10 @@ final class NotchAppState: ObservableObject {
             }
             return CGSize(width: notchSize.width + 90, height: notchSize.height + 0)
         case .trackPreview:
-            return CGSize(width: notchSize.width + 150, height: notchSize.height + 34)
+            return CGSize(
+                width: max(notchSize.width + 120, 380),
+                height: notchSize.height + 40
+            )
         case .expanded:
             return CGSize(
                 width: max(notchSize.width + 200, 380),
@@ -81,7 +92,7 @@ final class NotchAppState: ObservableObject {
     }
 
     var maxIslandSize: CGSize {
-        CGSize(width: max(notchSize.width + 220, 420), height: notchSize.height + 110 + 64)
+        CGSize(width: max(notchSize.width + 240, 480), height: notchSize.height + 160)
     }
 
     func setHoveringRaw(_ hovering: Bool) {
@@ -154,7 +165,12 @@ final class NotchAppState: ObservableObject {
         }
 
         guard let current = nowPlaying, current.id == incoming.id else {
+            let hadPrevious = nowPlaying != nil
             nowPlaying = incoming
+            if hadPrevious {
+                triggerTrackPreview()
+            }
+            scheduleIdleHide(isPlaying: incoming.isPlaying)
             return
         }
 
@@ -194,8 +210,26 @@ final class NotchAppState: ObservableObject {
             isPlaying: nextIsPlaying,
             artwork: incoming.artwork ?? current.artwork,
             accentColor: incoming.accentColor ?? current.accentColor,
+            palette: incoming.palette.isEmpty ? current.palette : incoming.palette,
             sourceName: incoming.sourceName
         )
+
+        scheduleIdleHide(isPlaying: nextIsPlaying)
+    }
+
+    private func scheduleIdleHide(isPlaying: Bool) {
+        idleHideTask?.cancel()
+        guard !isPlaying else { return }
+        idleHideTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            if let np = self.nowPlaying, !np.isPlaying {
+                self.nowPlaying = nil
+                self.isHoverExpanded = false
+                self.isTrackPreviewActive = false
+            }
+        }
     }
 
     func ingestURLs(_ urls: [URL]) {
@@ -233,6 +267,16 @@ final class NotchAppState: ObservableObject {
         latestEvent = nil
     }
 
+    private func triggerTrackPreview() {
+        trackPreviewTask?.cancel()
+        isTrackPreviewActive = true
+        trackPreviewTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(2500))
+            guard !Task.isCancelled else { return }
+            self?.isTrackPreviewActive = false
+        }
+    }
+
     func send(_ command: MediaCommand) {
         applyLocalMediaCommand(command)
         mediaCommandHandler?(command)
@@ -254,6 +298,7 @@ final class NotchAppState: ObservableObject {
             isPlaying: current.isPlaying,
             artwork: current.artwork,
             accentColor: current.accentColor,
+            palette: current.palette,
             sourceName: current.sourceName
         )
     }

@@ -19,9 +19,11 @@ final class NotchWindowController {
         let hostingController = FirstMouseHostingController(rootView: contentView)
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
-        hostingController.view.canDrawSubviewsIntoLayer = true
+        hostingController.view.canDrawSubviewsIntoLayer = false
+        hostingController.view.layerContentsRedrawPolicy = .duringViewResize
+        hostingController.view.autoresizingMask = [.width, .height]
 
-        let panelSize = appState.targetSize
+        let panelSize = appState.maxIslandSize
         panel = NotchPanel(
             contentRect: NSRect(origin: .zero, size: panelSize),
             styleMask: [.borderless, .fullSizeContentView],
@@ -69,6 +71,14 @@ final class NotchWindowController {
         let mouse = NSEvent.mouseLocation
 
         let target = appState.targetSize
+        let chromeRect = NSRect(
+            x: geometry.centerX - target.width / 2,
+            y: geometry.topY - target.height,
+            width: target.width,
+            height: target.height
+        )
+        panel.ignoresMouseEvents = !chromeRect.contains(mouse)
+
         let zoneWidth = max(target.width + 6, geometry.notchSize.width + 1)
         let zoneHeight = max(target.height + 6, geometry.notchSize.height + 1)
         let zone = NSRect(
@@ -102,12 +112,10 @@ final class NotchWindowController {
             }
             .store(in: &cancellables)
 
-        appState.objectWillChange
+        appState.$verticalOffset
             .receive(on: RunLoop.main)
-            .sink { [weak self] in
-                DispatchQueue.main.async {
-                    self?.reposition(animated: true)
-                }
+            .sink { [weak self] _ in
+                self?.reposition(animated: false)
             }
             .store(in: &cancellables)
 
@@ -126,7 +134,7 @@ final class NotchWindowController {
 
         let geometry = NotchGeometry(screen: screen)
         appState.updateNotchSize(geometry.notchSize)
-        let size = appState.targetSize
+        let size = appState.maxIslandSize
         let topPadding: CGFloat = geometry.hasNotch ? 0 : 6
         let origin = NSPoint(
             x: geometry.centerX - (size.width / 2),
@@ -136,16 +144,7 @@ final class NotchWindowController {
 
         if panel.frame == frame { return }
 
-        if animated {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.17
-                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.32, 0.72, 0, 1)
-                ctx.allowsImplicitAnimation = true
-                panel.animator().setFrame(frame, display: true)
-            }
-        } else {
-            panel.setFrame(frame, display: true)
-        }
+        panel.setFrame(frame, display: true)
     }
 
     private static func targetScreen() -> NSScreen? {

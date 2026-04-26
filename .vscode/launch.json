@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:NotchApp}",
+            "name": "Debug NotchApp",
+            "target": "NotchApp",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug NotchApp"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:NotchApp}",
+            "name": "Release NotchApp",
+            "target": "NotchApp",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release NotchApp"
+        }
+    ]
+}

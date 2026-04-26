@@ -6,27 +6,36 @@ struct NotchIslandView: View {
 
     var body: some View {
         let isExpanded = appState.presentation == .expanded
-        let bottomRadius: CGFloat = isExpanded ? 20 : 12
+        let isPreview = appState.presentation == .trackPreview
+        let bottomRadius: CGFloat = isExpanded ? 20 : (isPreview ? 16 : 12)
+        let target = appState.targetSize
 
         ZStack(alignment: .top) {
-            NotchChromeShape(bottomCornerRadius: bottomRadius)
-                .fill(Color.black)
-                .overlay(
-                    NotchChromeShape(bottomCornerRadius: bottomRadius)
-                        .stroke(Color.white.opacity(0.05), lineWidth: 0.6)
-                )
-                .shadow(color: .black.opacity(isExpanded ? 0.4 : 0), radius: isExpanded ? 18 : 0, x: 0, y: 10)
+            Color.clear
 
-            content(isExpanded: isExpanded)
-                .clipShape(NotchChromeShape(bottomCornerRadius: bottomRadius))
+            ZStack(alignment: .top) {
+                NotchChromeShape(bottomCornerRadius: bottomRadius)
+                    .fill(Color.black)
+                    .overlay(
+                        NotchChromeShape(bottomCornerRadius: bottomRadius)
+                            .stroke(Color.white.opacity(0.05), lineWidth: 0.6)
+                    )
+
+                content(isExpanded: isExpanded)
+            }
+            .frame(width: target.width, height: target.height)
+            .clipShape(NotchChromeShape(bottomCornerRadius: bottomRadius))
+            .shadow(color: .black.opacity(isExpanded || isPreview ? 0.4 : 0), radius: isExpanded || isPreview ? 18 : 0, x: 0, y: 10)
+            .contentShape(NotchChromeShape(bottomCornerRadius: bottomRadius))
+            .onTapGesture {
+                appState.togglePinnedExpanded()
+            }
+            .onDrop(of: [.fileURL], delegate: StashDropDelegate(appState: appState))
+            .animation(.spring(response: 0.3, dampingFraction: 0.86), value: target)
+            .animation(.spring(response: 0.3, dampingFraction: 0.86), value: appState.presentation)
+            .animation(.easeInOut(duration: 0.22), value: appState.currentMedia.id)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(NotchChromeShape(bottomCornerRadius: bottomRadius))
-        .onTapGesture {
-            appState.togglePinnedExpanded()
-        }
-        .onDrop(of: [.fileURL], delegate: StashDropDelegate(appState: appState))
-        .animation(.easeInOut(duration: 0.22), value: appState.currentMedia.id)
     }
 
     @ViewBuilder
@@ -34,10 +43,16 @@ struct NotchIslandView: View {
         if isExpanded {
             ExpandedIslandView(appState: appState)
                 .padding(.top, appState.notchSize.height + 2)
-                .transition(.opacity.animation(.easeInOut(duration: 0.18)))
-        } else if appState.presentation == .media || appState.presentation == .trackPreview {
+                .transition(.opacity)
+        } else if appState.presentation == .trackPreview {
+            TrackPreviewBar(
+                item: appState.currentMedia,
+                notchSize: appState.notchSize
+            )
+            .transition(.opacity)
+        } else if appState.presentation == .media {
             MediaIslandView(item: appState.currentMedia, notchWidth: appState.notchSize.width)
-                .transition(.opacity.animation(.easeInOut(duration: 0.18)))
+                .transition(.opacity)
         } else {
             Color.clear
         }
@@ -86,6 +101,7 @@ private struct MediaIslandView: View {
 
             EqualizerGlyph(
                 isPlaying: item.isPlaying,
+                palette: item.palette,
                 accent: SwiftUI.Color(item.accentColor ?? NSColor(calibratedWhite: 0.85, alpha: 1))
             )
             .frame(width: 22, height: 18)
@@ -129,7 +145,7 @@ private struct ExpandedIslandView: View {
 
                 Spacer(minLength: 0)
 
-                EqualizerGlyph(isPlaying: item.isPlaying, accent: accent)
+                EqualizerGlyph(isPlaying: item.isPlaying, palette: item.palette, accent: accent)
                     .frame(width: 18, height: 14)
             }
 
@@ -487,32 +503,109 @@ private struct MediaButton: View {
 
 private struct EqualizerGlyph: View {
     let isPlaying: Bool
+    let palette: [NSColor]
     let accent: SwiftUI.Color
 
+    private struct BarConfig {
+        let speed: Double
+        let phase: Double
+        let driftSpeed: Double
+        let driftPhase: Double
+        let amplitude: Double
+        let baseHeight: CGFloat
+    }
+
+    private static let barConfigs: [BarConfig] = [
+        .init(speed: 4.7, phase: 0.0,  driftSpeed: 1.31, driftPhase: 0.7,  amplitude: 0.95, baseHeight: 9),
+        .init(speed: 6.3, phase: 2.1,  driftSpeed: 0.97, driftPhase: 1.9,  amplitude: 1.10, baseHeight: 14),
+        .init(speed: 3.9, phase: 0.9,  driftSpeed: 1.71, driftPhase: 0.3,  amplitude: 0.85, baseHeight: 11),
+        .init(speed: 7.2, phase: 3.4,  driftSpeed: 0.83, driftPhase: 2.6,  amplitude: 1.00, baseHeight: 8)
+    ]
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 0.06, paused: !isPlaying)) { context in
+        TimelineView(.animation(minimumInterval: 0.04, paused: !isPlaying)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             HStack(alignment: .center, spacing: 2.5) {
                 ForEach(0..<4) { index in
                     Capsule()
                         .fill(barColor(index: index))
                         .frame(width: 2.6, height: barHeight(index: index, time: t))
-                        .animation(.linear(duration: 0.08), value: t)
                 }
             }
         }
     }
 
     private func barHeight(index: Int, time: Double) -> CGFloat {
-        let base: [CGFloat] = [10, 16, 9, 6]
         guard isPlaying else { return 5 }
-        let phase = time * 4.5 + Double(index) * 1.3
-        let wave = (sin(phase) + 1) / 2
-        return base[index] * (0.5 + 0.5 * CGFloat(wave))
+        let cfg = Self.barConfigs[index]
+        let fast = time * cfg.speed + cfg.phase
+        let drift = time * cfg.driftSpeed + cfg.driftPhase
+        let noise = (sin(fast)
+                     + 0.7 * sin(fast * 1.71 + 0.4)
+                     + 0.5 * sin(fast * 2.93 + 1.2)
+                     + 0.4 * sin(drift * 1.13)) / 2.6
+        let normalized = (noise + 1) / 2
+        return cfg.baseHeight * (0.25 + 0.75 * cfg.amplitude * CGFloat(normalized))
     }
 
     private func barColor(index: Int) -> SwiftUI.Color {
+        guard isPlaying else { return accent.opacity(0.35) }
+        if !palette.isEmpty {
+            let nsColor = palette[index % palette.count]
+            return SwiftUI.Color(nsColor)
+        }
         let opacities: [Double] = [1.0, 0.85, 0.7, 0.55]
-        return accent.opacity(isPlaying ? opacities[index] : 0.35)
+        return accent.opacity(opacities[index])
+    }
+}
+
+private struct TrackPreviewBar: View {
+    let item: NowPlayingItem
+    let notchSize: CGSize
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            HStack(spacing: 0) {
+                ArtworkView(item: item, size: 32)
+                    .padding(.leading, 8)
+
+                Spacer(minLength: notchSize.width - 16)
+
+                EqualizerGlyph(
+                    isPlaying: item.isPlaying,
+                    palette: item.palette,
+                    accent: SwiftUI.Color(item.accentColor ?? NSColor(calibratedWhite: 0.85, alpha: 1))
+                )
+                .frame(width: 28, height: 22)
+                .padding(.trailing, 12)
+            }
+            .padding(.top, 2)
+
+            VStack {
+                Spacer().frame(height: notchSize.height + 6)
+                HStack(spacing: 6) {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.8))
+
+                    Text(item.title)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    Text("·")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.45))
+
+                    Text(item.artist)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
     }
 }

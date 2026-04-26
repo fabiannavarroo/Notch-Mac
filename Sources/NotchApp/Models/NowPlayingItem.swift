@@ -12,6 +12,7 @@ struct NowPlayingItem: Identifiable {
     let isPlaying: Bool
     let artwork: NSImage?
     let accentColor: NSColor?
+    let palette: [NSColor]
     let sourceName: String
 
     var elapsed: TimeInterval {
@@ -44,6 +45,7 @@ struct NowPlayingItem: Identifiable {
             isPlaying: false,
             artwork: nil,
             accentColor: nil,
+            palette: [],
             sourceName: "NotchApp"
         )
     }
@@ -89,6 +91,7 @@ extension NowPlayingItem {
         let artwork = artworkData.flatMap(NSImage.init(data:))
         let contentItemID = dictionary["kMRMediaRemoteNowPlayingInfoContentItemIdentifier"] as? String
 
+        let palette = artwork?.dominantPalette() ?? []
         self.init(
             id: NowPlayingItem.stableID(title: title, artist: artist, contentItemID: contentItemID),
             title: title,
@@ -99,7 +102,8 @@ extension NowPlayingItem {
             baseDate: timestamp,
             isPlaying: rate > 0,
             artwork: artwork,
-            accentColor: artwork?.dominantAccentColor(),
+            accentColor: palette.first ?? artwork?.dominantAccentColor(),
+            palette: palette,
             sourceName: "Sistema"
         )
     }
@@ -202,6 +206,96 @@ extension NSImage {
         guard fallbackCount > 0 else { return nil }
         let n = Double(fallbackCount)
         return Self.boost(red: fallbackR / n, green: fallbackG / n, blue: fallbackB / n)
+    }
+
+    func dominantPalette(count: Int = 2) -> [NSColor] {
+        guard let cgImage = self.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return []
+        }
+
+        let width = 48
+        let height = 48
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
+
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return [] }
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return [] }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        struct Bucket {
+            var rSum = 0.0, gSum = 0.0, bSum = 0.0, sSum = 0.0
+            var count = 0
+        }
+
+        let hueBuckets = 24
+        var buckets = [Bucket](repeating: Bucket(), count: hueBuckets)
+
+        for i in stride(from: 0, to: pixels.count, by: bytesPerPixel) {
+            let r = Double(pixels[i]) / 255.0
+            let g = Double(pixels[i + 1]) / 255.0
+            let b = Double(pixels[i + 2]) / 255.0
+            let maxC = max(r, g, b)
+            let minC = min(r, g, b)
+            let delta = maxC - minC
+            let saturation = maxC == 0 ? 0 : delta / maxC
+            let brightness = maxC
+
+            if brightness < 0.18 || brightness > 0.96 || saturation < 0.28 { continue }
+
+            var hue: Double = 0
+            if delta > 0 {
+                if maxC == r {
+                    hue = ((g - b) / delta).truncatingRemainder(dividingBy: 6)
+                } else if maxC == g {
+                    hue = (b - r) / delta + 2
+                } else {
+                    hue = (r - g) / delta + 4
+                }
+                hue *= 60
+                if hue < 0 { hue += 360 }
+            }
+
+            let bucketIndex = min(hueBuckets - 1, Int(hue / (360.0 / Double(hueBuckets))))
+            buckets[bucketIndex].rSum += r
+            buckets[bucketIndex].gSum += g
+            buckets[bucketIndex].bSum += b
+            buckets[bucketIndex].sSum += saturation
+            buckets[bucketIndex].count += 1
+        }
+
+        let scored = buckets.enumerated()
+            .filter { $0.element.count > 4 }
+            .sorted {
+                let lhs = Double($0.element.count) * (1 + $0.element.sSum / Double($0.element.count))
+                let rhs = Double($1.element.count) * (1 + $1.element.sSum / Double($1.element.count))
+                return lhs > rhs
+            }
+
+        var picked: [(index: Int, color: NSColor)] = []
+        for entry in scored {
+            if picked.count >= count { break }
+            let tooClose = picked.contains { abs($0.index - entry.offset) < 2 || abs($0.index - entry.offset) > hueBuckets - 2 }
+            if tooClose { continue }
+            let n = Double(entry.element.count)
+            let color = Self.boost(
+                red: entry.element.rSum / n,
+                green: entry.element.gSum / n,
+                blue: entry.element.bSum / n
+            )
+            picked.append((entry.offset, color))
+        }
+
+        return picked.map { $0.color }
     }
 
     private static func boost(red: Double, green: Double, blue: Double) -> NSColor {

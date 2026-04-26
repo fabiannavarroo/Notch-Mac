@@ -160,6 +160,7 @@ final class MediaRemoteNowPlayingProvider {
             isPlaying: snapshot.isPlaying,
             artwork: keepsSameTrack ? item.artwork : nil,
             accentColor: keepsSameTrack ? item.accentColor : nil,
+            palette: keepsSameTrack ? item.palette : [],
             sourceName: snapshot.sourceName
         )
     }
@@ -288,6 +289,7 @@ final class MediaRemoteNowPlayingProvider {
             .flatMap { try? Data(contentsOf: $0) }
             .flatMap(NSImage.init(data:))
 
+        let palette = artwork?.dominantPalette() ?? []
         return NowPlayingItem(
             id: NowPlayingItem.stableID(
                 title: probeItem.title,
@@ -302,7 +304,8 @@ final class MediaRemoteNowPlayingProvider {
             baseDate: Date(),
             isPlaying: probeItem.isPlaying,
             artwork: artwork,
-            accentColor: artwork?.dominantAccentColor(),
+            accentColor: palette.first ?? artwork?.dominantAccentColor(),
+            palette: palette,
             sourceName: "Sistema"
         )
     }
