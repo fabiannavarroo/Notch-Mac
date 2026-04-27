@@ -132,7 +132,11 @@ private struct ExpandedIslandView: View {
 
         VStack(spacing: 6) {
             HStack(spacing: 10) {
-                ArtworkView(item: item, size: 38)
+                if let previous = appState.previousTrack {
+                    FlipArtworkView(frontItem: previous, backItem: item, size: 38)
+                } else {
+                    ArtworkView(item: item, size: 38)
+                }
 
                 VStack(alignment: .leading, spacing: 1) {
                     if let event = appState.latestEvent {
@@ -642,6 +646,7 @@ private struct FlipArtworkView: View {
     let size: CGFloat
 
     @State private var flipAngle: Double = 0
+    @State private var lastBackID: String = ""
 
     var body: some View {
         ZStack {
@@ -653,9 +658,20 @@ private struct FlipArtworkView: View {
         }
         .rotation3DEffect(.degrees(flipAngle), axis: (0, 1, 0), anchor: .center, perspective: 0.6)
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.6).delay(0.25)) {
-                flipAngle = 180
-            }
+            lastBackID = backItem.id
+            startFlip()
+        }
+        .onChange(of: backItem.id) { _, newID in
+            guard newID != lastBackID else { return }
+            lastBackID = newID
+            flipAngle = 0
+            startFlip()
+        }
+    }
+
+    private func startFlip() {
+        withAnimation(.easeInOut(duration: 0.6).delay(0.2)) {
+            flipAngle = 180
         }
     }
 }

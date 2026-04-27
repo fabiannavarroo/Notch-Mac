@@ -118,11 +118,15 @@ final class MediaRemoteNowPlayingProvider {
                     if let item {
                         let enriched = self.enrichWithAppleScript(item)
                         self.appState.updateNowPlaying(enriched)
+                        self.scheduleArtworkRetryIfNeeded(for: enriched)
                     } else if let fallback = self.pollUsingHelper() {
                         let enriched = self.enrichWithAppleScript(fallback)
                         self.appState.updateNowPlaying(enriched)
+                        self.scheduleArtworkRetryIfNeeded(for: enriched)
                     } else {
                         self.appState.updateNowPlaying(nil)
+                        self.lastSeenID = nil
+                        self.artworkRetryAttempts = 0
                     }
                 }
             }
@@ -132,8 +136,30 @@ final class MediaRemoteNowPlayingProvider {
         if let helperItem = pollUsingHelper() {
             let enriched = enrichWithAppleScript(helperItem)
             appState.updateNowPlaying(enriched)
+            scheduleArtworkRetryIfNeeded(for: enriched)
         } else {
             appState.updateNowPlaying(nil)
+            lastSeenID = nil
+            artworkRetryAttempts = 0
+        }
+    }
+
+    private func scheduleArtworkRetryIfNeeded(for item: NowPlayingItem) {
+        let isNewTrack = item.id != lastSeenID
+        lastSeenID = item.id
+
+        if isNewTrack {
+            artworkRetryAttempts = 0
+        }
+
+        guard item.artwork == nil, artworkRetryAttempts < 4 else { return }
+        artworkRetryAttempts += 1
+
+        let delayMs: Int = artworkRetryAttempts == 1 ? 250 : 600
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(delayMs))
+            self?.poll()
         }
     }
 
