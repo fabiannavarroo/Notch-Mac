@@ -6,13 +6,17 @@ import SwiftUI
 final class NotchWindowController {
     private let appState: NotchAppState
     private let volumeService: SystemVolumeService
+    private let quickLook: QuickLookController
     private let panel: NotchPanel
     private var cancellables = Set<AnyCancellable>()
     private var hoverTimer: Timer?
+    private var dragMonitor: Any?
+    private var dragInProgress = false
 
-    init(appState: NotchAppState, volumeService: SystemVolumeService) {
+    init(appState: NotchAppState, volumeService: SystemVolumeService, quickLook: QuickLookController) {
         self.appState = appState
         self.volumeService = volumeService
+        self.quickLook = quickLook
 
         let initialGeometry = NotchGeometry(screen: Self.targetScreen(preferredID: appState.preferredScreenID) ?? NSScreen.main ?? NSScreen.screens.first!)
         appState.updateNotchSize(initialGeometry.notchSize)
@@ -40,6 +44,14 @@ final class NotchWindowController {
             appState.togglePinnedExpanded()
             return true
         }
+        panel.spaceKeyHandler = { [weak appState, weak quickLook] in
+            guard let appState, let quickLook else { return }
+            let urls = appState.stashedFiles
+                .filter { appState.selectedStashIDs.contains($0.id) }
+                .map { $0.url }
+            guard !urls.isEmpty else { return }
+            quickLook.show(urls: urls)
+        }
         panel.contentViewController = hostingController
         panel.backgroundColor = .clear
         panel.contentView?.wantsLayer = true
@@ -56,6 +68,23 @@ final class NotchWindowController {
         bindState()
         reposition(animated: false)
         startHoverTracking()
+        startDragMonitoring()
+    }
+
+    private func startDragMonitoring() {
+        dragMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            Task { @MainActor in
+                guard let self else { return }
+                if event.type == .leftMouseUp {
+                    self.dragInProgress = false
+                    return
+                }
+                let pasteboard = NSPasteboard(name: .drag)
+                if pasteboard.types?.contains(.fileURL) == true {
+                    self.dragInProgress = true
+                }
+            }
+        }
     }
 
     private func startHoverTracking() {
@@ -79,7 +108,10 @@ final class NotchWindowController {
             width: target.width,
             height: target.height
         )
-        panel.ignoresMouseEvents = !chromeRect.contains(mouse)
+
+        let dropOpen = dragInProgress || appState.isDropTargeted
+        let activeRect = dropOpen ? panel.frame : chromeRect
+        panel.ignoresMouseEvents = !activeRect.contains(mouse)
 
         let zoneWidth = max(target.width + 6, geometry.notchSize.width + 1)
         let zoneHeight = max(target.height + 6, geometry.notchSize.height + 1)
@@ -216,6 +248,7 @@ struct NotchGeometry {
 
 final class NotchPanel: NSPanel {
     var firstMouseDownHandler: (() -> Bool)?
+    var spaceKeyHandler: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -229,6 +262,14 @@ final class NotchPanel: NSPanel {
         }
 
         super.sendEvent(event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 49 { // space
+            spaceKeyHandler?()
+            return
+        }
+        super.keyDown(with: event)
     }
 }
 

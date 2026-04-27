@@ -4,6 +4,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = NotchAppState()
     let volumeService = SystemVolumeService()
+    let quickLook = QuickLookController()
 
     private var notchWindowController: NotchWindowController?
     private var mediaProvider: MediaRemoteNowPlayingProvider?
@@ -20,7 +21,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         fileStashService = FileStashService(appState: appState)
 
-        notchWindowController = NotchWindowController(appState: appState, volumeService: volumeService)
+        notchWindowController = NotchWindowController(
+            appState: appState,
+            volumeService: volumeService,
+            quickLook: quickLook
+        )
         notchWindowController?.show()
 
         mediaProvider = MediaRemoteNowPlayingProvider(appState: appState)

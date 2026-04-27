@@ -32,11 +32,12 @@ struct NotchIslandView: View {
             .onTapGesture {
                 appState.togglePinnedExpanded()
             }
-            .onDrop(of: [.fileURL], delegate: StashDropDelegate(appState: appState))
             .animation(.spring(response: 0.3, dampingFraction: 0.86), value: target)
             .animation(.spring(response: 0.3, dampingFraction: 0.86), value: appState.presentation)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onDrop(of: [.fileURL], delegate: StashDropDelegate(appState: appState))
     }
 
     @ViewBuilder
@@ -350,40 +351,85 @@ private struct FileTrayView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
             } else {
-                StashTrayView(
-                    files: appState.stashedFiles,
-                    onRemove: { appState.removeStashed($0) }
-                )
-                .padding(.bottom, 4)
+                StashTrayView(appState: appState)
+                    .padding(.bottom, 4)
             }
         }
     }
 }
 
 private struct StashTrayView: View {
-    let files: [StashedFile]
-    let onRemove: (StashedFile) -> Void
+    @ObservedObject var appState: NotchAppState
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(files) { file in
-                    StashThumbnail(file: file, onRemove: onRemove)
+                ForEach(appState.stashedFiles) { file in
+                    StashThumbnail(file: file, appState: appState)
                 }
             }
             .padding(.horizontal, 2)
         }
         .frame(height: 44)
+        .background(
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    appState.clearStashSelection()
+                }
+        )
     }
 }
 
 private struct StashThumbnail: View {
     let file: StashedFile
-    let onRemove: (StashedFile) -> Void
+    @ObservedObject var appState: NotchAppState
 
     @State private var isHovering = false
 
     var body: some View {
+        let isSelected = appState.selectedStashIDs.contains(file.id)
+
+        FileItemHost(
+            file: file,
+            getDragFiles: { appState.filesForDrag(starting: file) },
+            onDragSuccess: { items in
+                for item in items {
+                    appState.removeStashed(item)
+                }
+            },
+            onClick: { modifiers in
+                appState.toggleStashSelection(file, modifiers: modifiers)
+            },
+            onDoubleClick: {
+                NSWorkspace.shared.open(file.url)
+            },
+            buildContextMenu: {
+                let menu = NSMenu()
+                menu.addItem(withTitle: "Abrir", action: #selector(StashContextActions.openFile(_:)), keyEquivalent: "")
+                    .representedObject = file.url
+                menu.addItem(withTitle: "Mostrar en Finder", action: #selector(StashContextActions.revealInFinder(_:)), keyEquivalent: "")
+                    .representedObject = file.url
+                menu.addItem(.separator())
+                let removeItem = NSMenuItem(title: "Quitar", action: nil, keyEquivalent: "")
+                removeItem.target = StashContextActions.shared
+                removeItem.action = #selector(StashContextActions.removeFile(_:))
+                removeItem.representedObject = StashContextActions.RemoveContext(appState: appState, file: file)
+                menu.addItem(removeItem)
+                for item in menu.items where item.target == nil && item.action != nil {
+                    item.target = StashContextActions.shared
+                }
+                return menu
+            }
+        ) {
+            thumbnailContent(isSelected: isSelected)
+        }
+        .frame(width: 40, height: 40)
+        .help(file.name)
+    }
+
+    @ViewBuilder
+    private func thumbnailContent(isSelected: Bool) -> some View {
         ZStack(alignment: .topTrailing) {
             Group {
                 if let image = file.thumbnail {
@@ -402,13 +448,15 @@ private struct StashThumbnail: View {
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+                    .stroke(isSelected ? Color.accentColor : Color.white.opacity(0.08), lineWidth: isSelected ? 2 : 0.5)
             )
             .scaleEffect(isHovering ? 1.06 : 1)
             .shadow(color: .black.opacity(isHovering ? 0.4 : 0), radius: 6, y: 3)
 
             if isHovering {
-                Button(action: { onRemove(file) }) {
+                Button {
+                    appState.removeStashed(file)
+                } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 7, weight: .bold))
                         .foregroundStyle(.white)
@@ -426,43 +474,31 @@ private struct StashThumbnail: View {
                 isHovering = hovering
             }
         }
-        .onTapGesture(count: 2) {
-            NSWorkspace.shared.open(file.url)
-        }
-        .contextMenu {
-            Button("Abrir") { NSWorkspace.shared.open(file.url) }
-            Button("Mostrar en Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([file.url])
-            }
-            Divider()
-            Button("Quitar", role: .destructive) { onRemove(file) }
-        }
-        .help(file.name)
-        .onDrag {
-            let provider = NSItemProvider()
-            provider.suggestedName = file.name
+    }
+}
 
-            let resolvedType: String = {
-                if let values = try? file.url.resourceValues(forKeys: [.contentTypeKey]),
-                   let type = values.contentType {
-                    return type.identifier
-                }
-                return UTType.data.identifier
-            }()
+@MainActor
+final class StashContextActions: NSObject {
+    static let shared = StashContextActions()
 
-            provider.registerFileRepresentation(
-                forTypeIdentifier: resolvedType,
-                fileOptions: [],
-                visibility: .all
-            ) { completion in
-                completion(file.url, false, nil)
-                Task { @MainActor in
-                    onRemove(file)
-                }
-                return nil
-            }
-            return provider
-        }
+    struct RemoveContext {
+        let appState: NotchAppState
+        let file: StashedFile
+    }
+
+    @objc func openFile(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc func revealInFinder(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc func removeFile(_ sender: NSMenuItem) {
+        guard let ctx = sender.representedObject as? RemoveContext else { return }
+        ctx.appState.removeStashed(ctx.file)
     }
 }
 

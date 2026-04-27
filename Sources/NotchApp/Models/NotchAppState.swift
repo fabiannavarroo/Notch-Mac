@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import CoreGraphics
 import Foundation
@@ -32,6 +33,7 @@ final class NotchAppState: ObservableObject {
     @Published var notchSize: CGSize = CGSize(width: 200, height: 32)
     @Published var stashedFiles: [StashedFile] = []
     @Published var isDropTargeted: Bool = false
+    @Published var selectedStashIDs: Set<UUID> = []
 
     @Published var isTrackPreviewActive: Bool = false
     @Published var previousTrack: NowPlayingItem?
@@ -61,6 +63,8 @@ final class NotchAppState: ObservableObject {
     private var hoverTask: Task<Void, Never>?
     private var trackPreviewTask: Task<Void, Never>?
     private var idleHideTask: Task<Void, Never>?
+    private var pendingPreviewTrackID: String?
+    private var pendingPreviewTimeout: Task<Void, Never>?
     init() {
         if UserDefaults.standard.object(forKey: DefaultsKey.verticalOffset) != nil {
             verticalOffset = CGFloat(UserDefaults.standard.double(forKey: DefaultsKey.verticalOffset))
@@ -100,7 +104,7 @@ final class NotchAppState: ObservableObject {
     }
 
     var fileTrayExpanded: Bool {
-        isDropTargeted || isPinnedExpanded || isHoverExpanded || isHoverHovering
+        !stashedFiles.isEmpty || isDropTargeted
     }
 
     var currentMedia: NowPlayingItem {
@@ -227,7 +231,19 @@ final class NotchAppState: ObservableObject {
             previousTrack = nowPlaying
             nowPlaying = incoming
             if incoming.isPlaying {
-                triggerTrackPreview()
+                if incoming.artwork != nil {
+                    triggerTrackPreview()
+                } else {
+                    pendingPreviewTrackID = incoming.id
+                    pendingPreviewTimeout?.cancel()
+                    pendingPreviewTimeout = Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .milliseconds(1500))
+                        guard !Task.isCancelled else { return }
+                        guard let self, self.pendingPreviewTrackID == incoming.id else { return }
+                        self.pendingPreviewTrackID = nil
+                        self.triggerTrackPreview()
+                    }
+                }
             }
             scheduleIdleHide(isPlaying: incoming.isPlaying)
             return
@@ -258,6 +274,9 @@ final class NotchAppState: ObservableObject {
             nextIsPlaying = current.isPlaying
         }
 
+        let mergedArtwork = incoming.artwork ?? current.artwork
+        let artworkJustArrived = current.artwork == nil && mergedArtwork != nil
+
         nowPlaying = NowPlayingItem(
             id: incoming.id,
             title: incoming.title.isEmpty ? current.title : incoming.title,
@@ -267,11 +286,18 @@ final class NotchAppState: ObservableObject {
             baseElapsed: nextBaseElapsed,
             baseDate: nextBaseDate,
             isPlaying: nextIsPlaying,
-            artwork: incoming.artwork ?? current.artwork,
+            artwork: mergedArtwork,
             accentColor: incoming.accentColor ?? current.accentColor,
             palette: incoming.palette.isEmpty ? current.palette : incoming.palette,
             sourceName: incoming.sourceName
         )
+
+        if artworkJustArrived,
+           pendingPreviewTrackID == incoming.id {
+            pendingPreviewTrackID = nil
+            pendingPreviewTimeout?.cancel()
+            triggerTrackPreview()
+        }
 
         scheduleIdleHide(isPlaying: nextIsPlaying)
     }
@@ -296,7 +322,35 @@ final class NotchAppState: ObservableObject {
     }
 
     func removeStashed(_ file: StashedFile) {
+        selectedStashIDs.remove(file.id)
         removeStashHandler?(file)
+    }
+
+    func toggleStashSelection(_ file: StashedFile, modifiers: NSEvent.ModifierFlags) {
+        if modifiers.contains(.command) {
+            if selectedStashIDs.contains(file.id) {
+                selectedStashIDs.remove(file.id)
+            } else {
+                selectedStashIDs.insert(file.id)
+            }
+        } else {
+            if selectedStashIDs == [file.id] {
+                selectedStashIDs.removeAll()
+            } else {
+                selectedStashIDs = [file.id]
+            }
+        }
+    }
+
+    func clearStashSelection() {
+        selectedStashIDs.removeAll()
+    }
+
+    func filesForDrag(starting: StashedFile) -> [StashedFile] {
+        if selectedStashIDs.contains(starting.id) {
+            return stashedFiles.filter { selectedStashIDs.contains($0.id) }
+        }
+        return [starting]
     }
 
     func setDropTargeted(_ targeted: Bool) {
