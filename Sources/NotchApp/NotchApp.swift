@@ -6,7 +6,7 @@ struct NotchApp: App {
 
     var body: some Scene {
         MenuBarExtra("NotchApp", systemImage: "inset.filled.tophalf.rectangle") {
-            MenuBarView(appState: appDelegate.appState)
+            MenuBarView(appState: appDelegate.appState, volumeService: appDelegate.volumeService)
         }
         .menuBarExtraStyle(.menu)
     }

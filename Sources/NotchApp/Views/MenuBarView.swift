@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @ObservedObject var appState: NotchAppState
+    @ObservedObject var volumeService: SystemVolumeService
 
     var body: some View {
         Toggle("Mostrar isla", isOn: $appState.isIslandEnabled)

@@ -28,6 +28,8 @@ final class MediaRemoteNowPlayingProvider {
     private var getNowPlayingInfo: GetNowPlayingInfoFunction?
     private var sendCommand: SendCommandFunction?
     private var setElapsedTime: SetElapsedTimeFunction?
+    private var lastSeenID: String?
+    private var artworkRetryAttempts: Int = 0
     private var timer: Timer?
     private var observers: [NSObjectProtocol] = []
 

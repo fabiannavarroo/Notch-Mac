@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct NotchIslandView: View {
     @ObservedObject var appState: NotchAppState
+    @ObservedObject var volumeService: SystemVolumeService
 
     var body: some View {
         let isExpanded = appState.presentation == .expanded
@@ -41,7 +42,7 @@ struct NotchIslandView: View {
     @ViewBuilder
     private func content(isExpanded: Bool) -> some View {
         if isExpanded {
-            ExpandedIslandView(appState: appState)
+            ExpandedIslandView(appState: appState, volumeService: volumeService)
                 .padding(.top, appState.notchSize.height + 2)
                 .transition(.opacity)
         } else if appState.presentation == .fileTray {
@@ -123,6 +124,7 @@ private struct MediaIslandView: View {
 
 private struct ExpandedIslandView: View {
     @ObservedObject var appState: NotchAppState
+    @ObservedObject var volumeService: SystemVolumeService
 
     var body: some View {
         let item = appState.currentMedia
@@ -176,14 +178,124 @@ private struct ExpandedIslandView: View {
                     appState.send(.nextTrack)
                 }
                 Spacer()
-                MediaButton(systemName: "airpodspro", tone: .secondary) {}
+                AudioOutputButton(appState: appState, volumeService: volumeService)
             }
             .padding(.horizontal, 4)
             .frame(height: 28)
+
+            if appState.isAudioPanelOpen {
+                AudioPanelView(volumeService: volumeService, accent: accent)
+                    .padding(.horizontal, 4)
+                    .padding(.top, 4)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
     }
+}
+
+private struct AudioOutputButton: View {
+    @ObservedObject var appState: NotchAppState
+    @ObservedObject var volumeService: SystemVolumeService
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            if !appState.isAudioPanelOpen {
+                volumeService.refreshDevices()
+            }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                appState.isAudioPanelOpen.toggle()
+            }
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(.white.opacity(appState.isAudioPanelOpen ? 0.16 : (isHovering ? 0.12 : 0)))
+                Image(systemName: outputIconName(for: volumeService))
+                    .font(.system(size: 11, weight: .bold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.white.opacity(appState.isAudioPanelOpen || isHovering ? 1 : 0.55))
+            }
+            .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                isHovering = hovering
+            }
+        }
+    }
+}
+
+private struct AudioPanelView: View {
+    @ObservedObject var volumeService: SystemVolumeService
+    let accent: SwiftUI.Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                volumeService.toggleMute()
+            } label: {
+                Image(systemName: volumeIconName)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(volumeService.isMuted ? 0.4 : 0.85))
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.plain)
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.16))
+                    Capsule()
+                        .fill(accent.opacity(volumeService.isMuted ? 0.35 : 1))
+                        .frame(width: max(2, CGFloat(volumeService.volume) * proxy.size.width))
+                }
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            let raw = Float(value.location.x / proxy.size.width)
+                            volumeService.setVolume(min(max(raw, 0), 1))
+                        }
+                )
+            }
+            .frame(height: 4)
+        }
+    }
+
+    private var volumeIconName: String {
+        if volumeService.isMuted || volumeService.volume == 0 {
+            return "speaker.slash.fill"
+        }
+        if volumeService.volume < 0.33 {
+            return "speaker.wave.1.fill"
+        }
+        if volumeService.volume < 0.66 {
+            return "speaker.wave.2.fill"
+        }
+        return "speaker.wave.3.fill"
+    }
+}
+
+@MainActor
+private func outputIconName(for service: SystemVolumeService) -> String {
+    let device = service.outputDevices.first { $0.id == service.currentDeviceID }
+    return outputIconName(for: device?.name ?? "")
+}
+
+private func outputIconName(for deviceName: String) -> String {
+    let lower = deviceName.lowercased()
+    if lower.contains("airpods max") { return "airpods.max" }
+    if lower.contains("airpods pro") { return "airpodspro" }
+    if lower.contains("airpods") { return "airpods" }
+    if lower.contains("beats") { return "beats.headphones" }
+    if lower.contains("headphone") || lower.contains("auricular") || lower.contains("cascos") { return "headphones" }
+    if lower.contains("homepod") { return "homepod.fill" }
+    if lower.contains("tv") || lower.contains("airplay") { return "appletv" }
+    if lower.contains("display") || lower.contains("monitor") || lower.contains("hdmi") { return "tv" }
+    return "hifispeaker.fill"
 }
 
 private struct FileTrayCompactView: View {
@@ -344,8 +456,17 @@ private struct StashThumbnail: View {
         .onDrag {
             let provider = NSItemProvider()
             provider.suggestedName = file.name
+
+            let resolvedType: String = {
+                if let values = try? file.url.resourceValues(forKeys: [.contentTypeKey]),
+                   let type = values.contentType {
+                    return type.identifier
+                }
+                return UTType.data.identifier
+            }()
+
             provider.registerFileRepresentation(
-                forTypeIdentifier: UTType.fileURL.identifier,
+                forTypeIdentifier: resolvedType,
                 fileOptions: [],
                 visibility: .all
             ) { completion in

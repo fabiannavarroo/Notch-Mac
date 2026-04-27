@@ -5,17 +5,19 @@ import SwiftUI
 @MainActor
 final class NotchWindowController {
     private let appState: NotchAppState
+    private let volumeService: SystemVolumeService
     private let panel: NotchPanel
     private var cancellables = Set<AnyCancellable>()
     private var hoverTimer: Timer?
 
-    init(appState: NotchAppState) {
+    init(appState: NotchAppState, volumeService: SystemVolumeService) {
         self.appState = appState
+        self.volumeService = volumeService
 
         let initialGeometry = NotchGeometry(screen: Self.targetScreen(preferredID: appState.preferredScreenID) ?? NSScreen.main ?? NSScreen.screens.first!)
         appState.updateNotchSize(initialGeometry.notchSize)
 
-        let contentView = NotchIslandView(appState: appState)
+        let contentView = NotchIslandView(appState: appState, volumeService: volumeService)
         let hostingController = FirstMouseHostingController(rootView: contentView)
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor

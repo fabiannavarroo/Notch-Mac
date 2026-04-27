@@ -18,9 +18,13 @@ final class NotchAppState: ObservableObject {
     }
 
     @Published var isIslandEnabled = true
-    @Published var isHoverExpanded = false
+    @Published var isHoverExpanded = false {
+        didSet { resetAudioPanelIfCollapsed() }
+    }
     @Published var isHoverHovering = false
-    @Published var isPinnedExpanded = false
+    @Published var isPinnedExpanded = false {
+        didSet { resetAudioPanelIfCollapsed() }
+    }
     @Published var isPeeking = false
     @Published var nowPlaying: NowPlayingItem?
     @Published var latestEvent: NotchEvent?
@@ -31,6 +35,7 @@ final class NotchAppState: ObservableObject {
 
     @Published var isTrackPreviewActive: Bool = false
     @Published var previousTrack: NowPlayingItem?
+    @Published var isAudioPanelOpen: Bool = false
 
     @Published var launchAtLogin: Bool = LoginItemService.isEnabled {
         didSet {
@@ -95,7 +100,7 @@ final class NotchAppState: ObservableObject {
     }
 
     var fileTrayExpanded: Bool {
-        isDropTargeted || isPinnedExpanded || isHoverExpanded
+        isDropTargeted || isPinnedExpanded || isHoverExpanded || isHoverHovering
     }
 
     var currentMedia: NowPlayingItem {
@@ -130,9 +135,10 @@ final class NotchAppState: ObservableObject {
             }
             return CGSize(width: notchSize.width + 90, height: notchSize.height + 0)
         case .expanded:
+            let extra: CGFloat = isAudioPanelOpen ? 36 : 0
             return CGSize(
                 width: max(notchSize.width + 200, 380),
-                height: notchSize.height + 80
+                height: notchSize.height + 80 + extra
             )
         }
     }
@@ -191,6 +197,13 @@ final class NotchAppState: ObservableObject {
         isPinnedExpanded = false
         isHoverExpanded = false
         latestEvent = nil
+        isAudioPanelOpen = false
+    }
+
+    private func resetAudioPanelIfCollapsed() {
+        if !isPinnedExpanded && !isHoverExpanded {
+            isAudioPanelOpen = false
+        }
     }
 
     func adjustVerticalOffset(by delta: CGFloat) {

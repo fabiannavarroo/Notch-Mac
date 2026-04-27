@@ -3,11 +3,13 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = NotchAppState()
+    let volumeService = SystemVolumeService()
 
     private var notchWindowController: NotchWindowController?
     private var mediaProvider: MediaRemoteNowPlayingProvider?
     private var hotKeyController: HotKeyController?
     private var notificationBridge: ExternalNotificationBridge?
+    private var batteryService: BatteryService?
     private var fileStashService: FileStashService?
     private let permissions = PermissionsService()
 
@@ -18,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         fileStashService = FileStashService(appState: appState)
 
-        notchWindowController = NotchWindowController(appState: appState)
+        notchWindowController = NotchWindowController(appState: appState, volumeService: volumeService)
         notchWindowController?.show()
 
         mediaProvider = MediaRemoteNowPlayingProvider(appState: appState)
