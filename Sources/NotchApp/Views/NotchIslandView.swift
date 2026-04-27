@@ -213,7 +213,7 @@ private struct AudioOutputButton: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(.white.opacity(appState.isAudioPanelOpen ? 0.16 : (isHovering ? 0.12 : 0)))
-                Image(systemName: outputIconName(for: volumeService))
+                Image(systemName: volumeService.currentOutputSymbolName)
                     .font(.system(size: 11, weight: .bold))
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.white.opacity(appState.isAudioPanelOpen || isHovering ? 1 : 0.55))
@@ -277,25 +277,6 @@ private struct AudioPanelView: View {
         }
         return "speaker.wave.3.fill"
     }
-}
-
-@MainActor
-private func outputIconName(for service: SystemVolumeService) -> String {
-    let device = service.outputDevices.first { $0.id == service.currentDeviceID }
-    return outputIconName(for: device?.name ?? "")
-}
-
-private func outputIconName(for deviceName: String) -> String {
-    let lower = deviceName.lowercased()
-    if lower.contains("airpods max") { return "airpods.max" }
-    if lower.contains("airpods pro") { return "airpodspro" }
-    if lower.contains("airpods") { return "airpods" }
-    if lower.contains("beats") { return "beats.headphones" }
-    if lower.contains("headphone") || lower.contains("auricular") || lower.contains("cascos") { return "headphones" }
-    if lower.contains("homepod") { return "homepod.fill" }
-    if lower.contains("tv") || lower.contains("airplay") { return "appletv" }
-    if lower.contains("display") || lower.contains("monitor") || lower.contains("hdmi") { return "tv" }
-    return "hifispeaker.fill"
 }
 
 private struct FileTrayCompactView: View {

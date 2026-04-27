@@ -4,6 +4,96 @@ import Foundation
 struct OutputDevice: Identifiable, Equatable {
     let id: AudioDeviceID
     let name: String
+    let kind: AudioOutputKind
+
+    var symbolName: String {
+        kind.symbolName
+    }
+
+    init(id: AudioDeviceID, name: String) {
+        self.id = id
+        self.name = name
+        self.kind = AudioOutputKind(deviceName: name)
+    }
+}
+
+enum AudioOutputKind: Equatable {
+    case airPodsMax
+    case airPodsPro
+    case airPods
+    case beats
+    case headphones
+    case homePod
+    case airPlay
+    case display
+    case builtInSpeaker
+    case speaker
+
+    init(deviceName: String) {
+        let normalized = deviceName.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+
+        if normalized.contains("airpods max") {
+            self = .airPodsMax
+        } else if normalized.contains("airpods pro") {
+            self = .airPodsPro
+        } else if normalized.contains("airpods") {
+            self = .airPods
+        } else if normalized.contains("beats") {
+            self = .beats
+        } else if normalized.contains("headphone")
+            || normalized.contains("auricular")
+            || normalized.contains("audifono")
+            || normalized.contains("casco")
+            || normalized.contains("earbud")
+            || normalized.contains("earphone") {
+            self = .headphones
+        } else if normalized.contains("homepod") {
+            self = .homePod
+        } else if normalized.contains("airplay")
+            || normalized.contains("apple tv")
+            || normalized.contains("tv") {
+            self = .airPlay
+        } else if normalized.contains("display")
+            || normalized.contains("monitor")
+            || normalized.contains("hdmi")
+            || normalized.contains("pantalla") {
+            self = .display
+        } else if normalized.contains("macbook")
+            || normalized.contains("internal speaker")
+            || normalized.contains("built-in")
+            || normalized.contains("integrated")
+            || normalized.contains("altavoz interno")
+            || normalized.contains("altavoces internos") {
+            self = .builtInSpeaker
+        } else {
+            self = .speaker
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .airPodsMax:
+            return "airpodsmax"
+        case .airPodsPro:
+            return "airpodspro"
+        case .airPods:
+            return "airpods"
+        case .beats:
+            return "beats.headphones"
+        case .headphones:
+            return "headphones"
+        case .homePod:
+            return "homepod.fill"
+        case .airPlay:
+            return "airplayaudio"
+        case .display:
+            return "tv"
+        case .builtInSpeaker:
+            return "speaker.wave.3.fill"
+        case .speaker:
+            return "hifispeaker.fill"
+        }
+    }
 }
 
 @MainActor
@@ -13,12 +103,22 @@ final class SystemVolumeService: ObservableObject {
     @Published var outputDevices: [OutputDevice] = []
     @Published var currentDeviceID: AudioDeviceID = 0
 
-    private var listenerToken: AudioObjectPropertyListenerBlock?
+    var currentOutputDevice: OutputDevice? {
+        outputDevices.first { $0.id == currentDeviceID }
+    }
+
+    var currentOutputSymbolName: String {
+        currentOutputDevice?.symbolName ?? AudioOutputKind(deviceName: "").symbolName
+    }
+
+    private var defaultOutputListenerToken: AudioObjectPropertyListenerBlock?
+    private var deviceListListenerToken: AudioObjectPropertyListenerBlock?
+    private var volumeListenerToken: AudioObjectPropertyListenerBlock?
     private var observedDeviceID: AudioDeviceID = 0
 
     init() {
-        refresh()
         refreshDevices()
+        refresh()
         startObserving()
     }
 
@@ -69,6 +169,9 @@ final class SystemVolumeService: ObservableObject {
         volume = readVolume() ?? 0
         isMuted = readMute() ?? false
         currentDeviceID = defaultOutputDeviceID() ?? 0
+        if currentOutputDevice == nil {
+            refreshDevices()
+        }
     }
 
     func refreshDevices() {
@@ -212,7 +315,53 @@ final class SystemVolumeService: ObservableObject {
     }
 
     private func startObserving() {
+        startObservingDefaultOutput()
+        startObservingDeviceList()
+        startObservingCurrentDeviceVolume()
+    }
+
+    private func startObservingDefaultOutput() {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            Task { @MainActor in
+                self?.handleAudioRouteChanged()
+            }
+        }
+        defaultOutputListenerToken = block
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, .main, block)
+    }
+
+    private func startObservingDeviceList() {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            Task { @MainActor in
+                self?.handleAudioRouteChanged()
+            }
+        }
+        deviceListListenerToken = block
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, .main, block)
+    }
+
+    private func handleAudioRouteChanged() {
+        refreshDevices()
+        refresh()
+        startObservingCurrentDeviceVolume()
+    }
+
+    private func startObservingCurrentDeviceVolume() {
         guard let device = defaultOutputDeviceID() else { return }
+        guard device != observedDeviceID || volumeListenerToken == nil else { return }
+        stopObservingCurrentDeviceVolume()
         observedDeviceID = device
 
         var addr = AudioObjectPropertyAddress(
@@ -226,7 +375,19 @@ final class SystemVolumeService: ObservableObject {
                 self?.refresh()
             }
         }
-        listenerToken = block
+        volumeListenerToken = block
         AudioObjectAddPropertyListenerBlock(device, &addr, .main, block)
+    }
+
+    private func stopObservingCurrentDeviceVolume() {
+        guard let block = volumeListenerToken, observedDeviceID != 0 else { return }
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyVolumeScalar,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectRemovePropertyListenerBlock(observedDeviceID, &addr, .main, block)
+        volumeListenerToken = nil
+        observedDeviceID = 0
     }
 }
