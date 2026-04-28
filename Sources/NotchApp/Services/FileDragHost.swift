@@ -1,17 +1,19 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 @MainActor
-final class FileItemDragCoordinator: NSObject, NSDraggingSource, NSFilePromiseProviderDelegate {
+final class FileItemDragCoordinator: NSObject, NSDraggingSource {
     var getDragFiles: () -> [StashedFile]
     var onDragSuccess: ([StashedFile]) -> Void
     var onClick: (NSEvent.ModifierFlags) -> Void
     var onDoubleClick: () -> Void
     var buildContextMenu: () -> NSMenu?
 
-    private var droppedFiles: [StashedFile] = []
-    private let promiseQueue = OperationQueue()
+    private var pendingDragFiles: [StashedFile] = []
+
+    func recordPendingDrag(files: [StashedFile]) {
+        pendingDragFiles = files
+    }
 
     init(
         getDragFiles: @escaping () -> [StashedFile],
@@ -25,14 +27,13 @@ final class FileItemDragCoordinator: NSObject, NSDraggingSource, NSFilePromisePr
         self.onClick = onClick
         self.onDoubleClick = onDoubleClick
         self.buildContextMenu = buildContextMenu
-        promiseQueue.qualityOfService = .userInitiated
     }
 
     nonisolated func draggingSession(
         _ session: NSDraggingSession,
         sourceOperationMaskFor context: NSDraggingContext
     ) -> NSDragOperation {
-        return [.copy]
+        return [.copy, .move]
     }
 
     nonisolated func draggingSession(
@@ -41,44 +42,13 @@ final class FileItemDragCoordinator: NSObject, NSDraggingSource, NSFilePromisePr
         operation: NSDragOperation
     ) {
         Task { @MainActor in
-            let files = self.droppedFiles
-            self.droppedFiles = []
+            let files = self.pendingDragFiles
+            self.pendingDragFiles = []
             guard !files.isEmpty, operation != [] else { return }
+
+            // Espera a que el destino termine de leer los archivos antes de borrarlos.
+            try? await Task.sleep(for: .milliseconds(800))
             self.onDragSuccess(files)
-        }
-    }
-
-    nonisolated func filePromiseProvider(
-        _ provider: NSFilePromiseProvider,
-        fileNameForType fileType: String
-    ) -> String {
-        (provider.userInfo as? StashedFile)?.name ?? "file"
-    }
-
-    nonisolated func operationQueue(for filePromiseProvider: NSFilePromiseProvider) -> OperationQueue {
-        promiseQueue
-    }
-
-    nonisolated func filePromiseProvider(
-        _ provider: NSFilePromiseProvider,
-        writePromiseTo url: URL,
-        completionHandler: @escaping (Error?) -> Void
-    ) {
-        guard let file = provider.userInfo as? StashedFile else {
-            completionHandler(NSError(domain: "Notch", code: 1))
-            return
-        }
-        do {
-            if FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
-            }
-            try FileManager.default.copyItem(at: file.url, to: url)
-            Task { @MainActor in
-                self.droppedFiles.append(file)
-            }
-            completionHandler(nil)
-        } catch {
-            completionHandler(error)
         }
     }
 }
@@ -142,6 +112,8 @@ final class FileItemNSView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         return self.frame.contains(point) ? self : nil
     }
@@ -189,12 +161,14 @@ final class FileItemNSView: NSView {
         let files = coordinator.getDragFiles()
         guard !files.isEmpty else { return }
 
+        coordinator.recordPendingDrag(files: files)
+
         var draggingItems: [NSDraggingItem] = []
         for (index, file) in files.enumerated() {
-            let utiString = (try? file.url.resourceValues(forKeys: [.contentTypeKey]).contentType?.identifier) ?? UTType.data.identifier
-            let promise = NSFilePromiseProvider(fileType: utiString, delegate: coordinator)
-            promise.userInfo = file
-            let item = NSDraggingItem(pasteboardWriter: promise)
+            let pasteboardItem = NSPasteboardItem()
+            pasteboardItem.setString(file.url.absoluteString, forType: .fileURL)
+
+            let item = NSDraggingItem(pasteboardWriter: pasteboardItem)
             let frame = NSRect(
                 x: bounds.midX - 24 + CGFloat(index) * 6,
                 y: bounds.midY - 24 - CGFloat(index) * 6,

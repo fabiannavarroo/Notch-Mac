@@ -36,11 +36,17 @@ final class NotchWindowController {
             backing: .buffered,
             defer: false
         )
-        panel.firstMouseDownHandler = { [weak appState] in
-            guard let appState, !appState.isPinnedExpanded else {
-                return false
+        panel.firstMouseDownHandler = { [weak appState, weak panel] event in
+            guard let appState, let panel else { return false }
+
+            if let contentView = panel.contentView {
+                let local = contentView.convert(event.locationInWindow, from: nil)
+                if let hit = contentView.hitTest(local), hit is FileItemNSView {
+                    return false
+                }
             }
 
+            guard !appState.isPinnedExpanded else { return false }
             appState.togglePinnedExpanded()
             return true
         }
@@ -89,7 +95,7 @@ final class NotchWindowController {
 
     private func startHoverTracking() {
         hoverTimer?.invalidate()
-        hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.02, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.evaluateHover()
             }
@@ -101,18 +107,9 @@ final class NotchWindowController {
         let geometry = NotchGeometry(screen: screen)
         let mouse = NSEvent.mouseLocation
 
+        panel.ignoresMouseEvents = false
+
         let target = appState.targetSize
-        let chromeRect = NSRect(
-            x: geometry.centerX - target.width / 2,
-            y: geometry.topY - target.height,
-            width: target.width,
-            height: target.height
-        )
-
-        let dropOpen = dragInProgress || appState.isDropTargeted
-        let activeRect = dropOpen ? panel.frame : chromeRect
-        panel.ignoresMouseEvents = !activeRect.contains(mouse)
-
         let zoneWidth = max(target.width + 6, geometry.notchSize.width + 1)
         let zoneHeight = max(target.height + 6, geometry.notchSize.height + 1)
         let zone = NSRect(
@@ -247,7 +244,7 @@ struct NotchGeometry {
 }
 
 final class NotchPanel: NSPanel {
-    var firstMouseDownHandler: (() -> Bool)?
+    var firstMouseDownHandler: ((NSEvent) -> Bool)?
     var spaceKeyHandler: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
@@ -256,7 +253,7 @@ final class NotchPanel: NSPanel {
     override func sendEvent(_ event: NSEvent) {
         if event.type == .leftMouseDown, !isKeyWindow {
             makeKey()
-            if firstMouseDownHandler?() == true {
+            if firstMouseDownHandler?(event) == true {
                 return
             }
         }
