@@ -22,7 +22,18 @@ final class FileStashService {
             self?.remove(file)
         }
 
-        loadExisting()
+        purgeStashOnLaunch()
+    }
+
+    private func purgeStashOnLaunch() {
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: stashDir,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        for url in items {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     func ingest(_ urls: [URL]) {
@@ -41,8 +52,18 @@ final class FileStashService {
     }
 
     func remove(_ file: StashedFile) {
-        try? FileManager.default.removeItem(at: file.url)
         appState.stashedFiles.removeAll { $0.id == file.id }
+        appState.selectedStashIDs.remove(file.id)
+        // Retrasa el borrado para que destinos lentos (WhatsApp, Mail o subidas)
+        // puedan seguir leyendo el archivo aunque desaparezca de la interfaz.
+        scheduleDiskCleanup(at: file.url, after: 30)
+    }
+
+    private func scheduleDiskCleanup(at url: URL, after seconds: TimeInterval) {
+        Task.detached {
+            try? await Task.sleep(for: .seconds(seconds))
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     func clearAll() {

@@ -104,7 +104,11 @@ final class NotchAppState: ObservableObject {
     }
 
     var fileTrayExpanded: Bool {
-        !stashedFiles.isEmpty || isDropTargeted
+        isDropTargeted
+            || isPinnedExpanded
+            || isHoverExpanded
+            || isHoverHovering
+            || !selectedStashIDs.isEmpty
     }
 
     var currentMedia: NowPlayingItem {

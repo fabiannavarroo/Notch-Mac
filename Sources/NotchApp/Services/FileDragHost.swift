@@ -45,9 +45,6 @@ final class FileItemDragCoordinator: NSObject, NSDraggingSource {
             let files = self.pendingDragFiles
             self.pendingDragFiles = []
             guard !files.isEmpty, operation != [] else { return }
-
-            // Espera a que el destino termine de leer los archivos antes de borrarlos.
-            try? await Task.sleep(for: .milliseconds(800))
             self.onDragSuccess(files)
         }
     }
